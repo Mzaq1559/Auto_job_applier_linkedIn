@@ -286,8 +286,8 @@ def apply_filters() -> None:
         wait.until(EC.element_to_be_clickable((By.XPATH, '//button[normalize-space()="All filters"]'))).click()
         buffer(recommended_wait)
 
-        wait_span_click(driver, sort_by)
-        wait_span_click(driver, date_posted)
+        if sort_by: wait_span_click(driver, sort_by)
+        if date_posted: wait_span_click(driver, date_posted)
         buffer(recommended_wait)
 
         multi_sel_noWait(driver, experience_level) 
@@ -328,9 +328,21 @@ def apply_filters() -> None:
             pause_after_filters = False
 
     except Exception as e:
-        logger.warning("Setting the preferences failed!")
-        pyautogui.confirm(f"Faced error while applying filters. Please make sure correct filters are selected, click on show results and click on any button of this dialog, I know it sucks. Can't turn off Pause after search when error occurs! ERROR: {e}", ["Doesn't look good, but Continue XD", "Look's good, Continue"])
-        # print_lg(e)
+        logger.warning("Setting one or more search filters failed; continuing with available filters. %s", e)
+        try:
+            show_results_button = wait_for_displayed(
+                driver,
+                '//button[contains(translate(@aria-label, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "apply current filters to show") or contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "show results")]',
+                3
+            )
+            scroll_to_view(driver, show_results_button)
+            try: show_results_button.click()
+            except Exception: driver.execute_script("arguments[0].click();", show_results_button)
+            buffer(3)
+        except Exception as show_error:
+            logger.warning("Could not apply/show the current filter set; continuing with current results. %s", show_error)
+        if interactive_session:
+            pyautogui.confirm("Some filters could not be applied. Continuing with the filters LinkedIn accepted.", ["Continue"])
 
 
 
@@ -532,20 +544,20 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
 
 def find_bad_word(text: str, words: list[str]) -> str | None:
     '''
-    Returns the first entry of `words` that appears in `text` as a whole word, else None.
-    A plain substring scan made "java" skip every JavaScript role, so boundaries are
-    applied - but only on the alphanumeric edges of the phrase, so ".NET" still matches
-    ".NET" and "ASP.NET" while not matching ".NETWORK".
+    Returns the first entry of words that appears as a standalone token/phrase.
+
+    Boundary handling is important for technology names. In particular, a blacklist entry
+    such as .NET must not match the .NET suffix inside ASP.NET. Entries beginning with
+    punctuation therefore get an explicit non-word boundary on the left as well.
     '''
     for word in words:
         word = str(word).strip()
         if not word: continue
-        left = r'(?<!\w)' if word[0].isalnum() or word[0] == '_' else ''
+        left = r'(?<![A-Za-z0-9_])'
         right = r'(?!\w)' if word[-1].isalnum() or word[-1] == '_' else ''
         if re.search(left + re.escape(word) + right, text, re.IGNORECASE):
             return word
     return None
-
 
 def label_has(label: str, *words: str) -> bool:
     '''
@@ -1159,10 +1171,11 @@ submit_button_xpath = './/button[@aria-label="Submit application" or normalize-s
 # new browser tab instead means the job was external.
 easy_apply_locators = [
     ("apply button id", ".//button[@id='jobs-apply-button-id']"),
-    # ponytail: not seen in the captured DOM, kept as a cheap extra shot before the classes.
     ("in-app apply URL flag", ".//a[contains(@href, 'openSDUIApplyFlow=true')]"),
-    ("aria-label", ".//button[contains(@class,'jobs-apply-button') and contains(@aria-label, 'Easy Apply')]"),
-    ("button label", ".//button[contains(@class,'jobs-apply-button')][.//span[contains(normalize-space(.), 'Easy Apply')]]"),
+    ("easy-apply aria-label", ".//button[contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'easy apply')]"),
+    ("easy-apply button text", ".//button[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'easy apply')]"),
+    ("easy-apply span text", ".//button[.//span[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'easy apply')]]"),
+    ("apply button class", ".//button[contains(@class,'jobs-apply-button')]"),
     ("apply button", apply_button_xpath),
 ]
 
@@ -1442,7 +1455,11 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                         if not apply_button: continue
                         try:
                             tabs_open = len(driver.window_handles)
-                            apply_button.click()
+                            try:
+                                scroll_to_view(driver, apply_button, True)
+                                apply_button.click()
+                            except Exception:
+                                driver.execute_script("arguments[0].click();", apply_button)
                             buffer(click_gap)
                             if len(driver.window_handles) > tabs_open:
                                 # A new tab opened -> external apply. Close it and return to LinkedIn.
