@@ -544,20 +544,20 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
 
 def find_bad_word(text: str, words: list[str]) -> str | None:
     '''
-    Returns the first entry of `words` that appears in `text` as a whole word, else None.
-    A plain substring scan made "java" skip every JavaScript role, so boundaries are
-    applied - but only on the alphanumeric edges of the phrase, so ".NET" still matches
-    ".NET" and "ASP.NET" while not matching ".NETWORK".
+    Returns the first entry of words that appears as a standalone token/phrase.
+
+    Boundary handling is important for technology names. In particular, a blacklist entry
+    such as .NET must not match the .NET suffix inside ASP.NET. Entries beginning with
+    punctuation therefore get an explicit non-word boundary on the left as well.
     '''
     for word in words:
         word = str(word).strip()
         if not word: continue
-        left = r'(?<!\w)' if word[0].isalnum() or word[0] == '_' else ''
+        left = r'(?<![A-Za-z0-9_])'
         right = r'(?!\w)' if word[-1].isalnum() or word[-1] == '_' else ''
         if re.search(left + re.escape(word) + right, text, re.IGNORECASE):
             return word
     return None
-
 
 def label_has(label: str, *words: str) -> bool:
     '''
