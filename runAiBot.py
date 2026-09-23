@@ -34,7 +34,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support.select import Select
 from selenium.webdriver.remote.webelement import WebElement
-from selenium.common.exceptions import NoSuchElementException, ElementClickInterceptedException, NoSuchWindowException, ElementNotInteractableException, WebDriverException
+from selenium.common.exceptions import NoSuchElementException, ElementClickInterceptedException, NoSuchWindowException, ElementNotInteractableException, WebDriverException, StaleElementReferenceException
 
 from config.personals import *
 from config.questions import *
@@ -961,10 +961,16 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                 auth_answer = work_authorization_answer(label)
                 if auth_answer is not None: answer = auth_answer
                 elif label_has(label, 'experience', 'years'):
-                    # Only the total. "How many years of Kubernetes experience do you have?"
-                    # and "...experience with Python?" ask about ONE skill, and the user's
-                    # total is a false answer to those - leave them for config/questions.py.
-                    if find_bad_word(label, total_experience_terms) and not find_bad_word(label, skill_qualifier_terms):
+                    # Specific experience questions must not inherit a generic total.
+                    # Keep these values in config/questions.py so the application never
+                    # invents professional experience from projects/coursework.
+                    if label_has(label, 'devops'):
+                        answer = devops_experience
+                    elif label_has(label, 'information technology', 'information tech'):
+                        answer = information_technology_experience
+                    elif label_has(label, 'software development'):
+                        answer = software_development_experience
+                    elif find_bad_word(label, total_experience_terms) and not find_bad_word(label, skill_qualifier_terms):
                         answer = years_of_experience
                 elif label_has(label, 'phone', 'mobile'): answer = phone_number
                 elif label_has(label, 'street'): answer = street
@@ -1376,6 +1382,9 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                     questions_list = None
                     screenshot_name = "Not Available"
 
+                    # Always initialize this before blacklist parsing. A failed About Company
+                    # lookup must not leave the date-posted code with an unbound local.
+                    jobs_top_card = None
                     try:
                         rejected_jobs, blacklisted_companies, jobs_top_card = check_blacklist(rejected_jobs,job_id,company,blacklisted_companies)
                     except ValueError as e:
@@ -1417,9 +1426,24 @@ def apply_to_jobs(search_terms: list[str]) -> None:
 
                     # Calculation of date posted
                     try:
-                        # try: time_posted_text = find_by_class(driver, "jobs-unified-top-card__posted-date", 2).text
-                        # except: 
-                        time_posted_text = jobs_top_card.find_element(By.XPATH, './/span[contains(normalize-space(), " ago")]').text
+                        # check_blacklist() normally returns the top card, but LinkedIn can
+                        # re-render it while opening the job. Reacquire a fresh card instead
+                        # of dereferencing an unbound/stale local.
+                        if jobs_top_card is None:
+                            jobs_top_card = try_find_by_classes(driver, [
+                                "job-details-jobs-unified-top-card__primary-description-container",
+                                "job-details-jobs-unified-top-card__primary-description",
+                                "jobs-unified-top-card__primary-description",
+                                "jobs-details__main-content"
+                            ])
+                        try:
+                            time_posted_text = jobs_top_card.find_element(
+                                By.XPATH, './/span[contains(normalize-space(), " ago")]'
+                            ).text
+                        except Exception:
+                            time_posted_text = find_by_class(
+                                driver, "jobs-unified-top-card__posted-date", 2
+                            ).text
                         print("Time Posted: " + time_posted_text)
                         if time_posted_text.__contains__("Reposted"):
                             reposted = True
@@ -1514,13 +1538,28 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                                                 title, "\n  ".join(sorted(unanswered_questions))))
                                     blocked_questions = set(unanswered_questions)
                                     if useNewResume and not uploaded: uploaded, resume = upload_resume(modal, default_resume_path)
-                                    # Scoped to the dialog on purpose: a document-wide search
-                                    # for "Next" matches the search results PAGINATION control
-                                    # (aria-label "View next page") and paged away mid-application.
-                                    try: next_button = modal.find_element(By.XPATH, review_button_xpath)
-                                    except NoSuchElementException:  next_button = modal.find_element(By.XPATH, next_button_xpath)
-                                    try: next_button.click()
-                                    except ElementClickInterceptedException: break    # Happens when it tries to click Next button in About Company photos section
+                                    # Scoped to the dialog on purpose. LinkedIn frequently
+                                    # re-renders the modal after a click, invalidating the old
+                                    # WebElement. Always reacquire the button immediately before
+                                    # clicking it and retry once on a stale reference.
+                                    try:
+                                        try:
+                                            next_button = modal.find_element(By.XPATH, review_button_xpath)
+                                        except NoSuchElementException:
+                                            next_button = modal.find_element(By.XPATH, next_button_xpath)
+                                        next_button.click()
+                                    except StaleElementReferenceException:
+                                        try:
+                                            try:
+                                                next_button = modal.find_element(By.XPATH, review_button_xpath)
+                                            except NoSuchElementException:
+                                                next_button = modal.find_element(By.XPATH, next_button_xpath)
+                                            next_button.click()
+                                        except StaleElementReferenceException:
+                                            logger.warning("Easy Apply navigation button stayed stale after retry.")
+                                            raise
+                                    except ElementClickInterceptedException:
+                                        break
                                     buffer(click_gap)
 
                             except NoSuchElementException: errored = "nose"
@@ -1533,7 +1572,13 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                                 if questions_list and errored != "stuck": 
                                     print_lg("Answered the following questions...", questions_list)
                                     print("\n\n" + "\n".join(str(question) for question in questions_list) + "\n\n")
-                                wait_xp_click(modal, review_button_xpath, 1, scrollTop=True)
+                                if not wait_xp_click(modal, review_button_xpath, 2, scrollTop=True):
+                                    try:
+                                        refreshed_modal = find_by_class(driver, "jobs-easy-apply-modal", 2)
+                                        wait_xp_click(refreshed_modal, review_button_xpath, 2, scrollTop=True)
+                                        modal = refreshed_modal
+                                    except Exception:
+                                        logger.warning("Could not reach the Review step after filling Easy Apply.")
                                 cur_pause_before_submit = pause_before_submit
                                 if errored == "stuck":
                                     discard_reason = "Required questions left unanswered."
