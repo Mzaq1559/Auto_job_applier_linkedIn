@@ -24,7 +24,10 @@ version:    26.01.20.5.08
 default_resume_path = "all resumes/default/resume.pdf"      # (In Development)
 
 # What do you want to answer for questions that ask about years of experience you have, this is different from current_experience? 
-years_of_experience = "5"          # A number in quotes Eg: "0","1","2","3","4", etc.
+years_of_experience = "0"          # Total professional experience. Use 0 for a student without professional experience.
+software_development_experience = "0"
+devops_experience = "0"
+information_technology_experience = "0"
 
 # Do you need visa sponsorship now or in future?
 require_visa = "No"               # "Yes" or "No"
