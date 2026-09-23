@@ -67,7 +67,7 @@ def wait_span_click(driver: WebDriver, text: str, time: float=5.0, click: bool=T
         try:
             button = wait_for_displayed(driver, text_xpath("span", text), time)
         except Exception:
-            fallback_xpath = './/*[self::button or self::label][contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "' + text.trim().toLowerCase() + '")]'
+            fallback_xpath = './/*[self::button or self::label][contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "' + text.strip().lower() + '")]'
             try:
                 button = wait_for_displayed(driver, fallback_xpath, time)
             except Exception as e:
