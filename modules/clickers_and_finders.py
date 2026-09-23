@@ -125,7 +125,7 @@ def multi_sel_noWait(driver: WebDriver, texts: list, actions: ActionChains = Non
         try:
             button = pick_first_displayed(driver.find_elements(By.XPATH, text_xpath("span", text)))
             if not button:
-                fallback_xpath = './/*[self::button or self::label][contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "' + text.strip().toLowerCase() + '")]'
+                fallback_xpath = './/*[self::button or self::label][contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "' + text.strip().lower() + '")]'
                 button = pick_first_displayed(driver.find_elements(By.XPATH, fallback_xpath))
             if not button: raise NoSuchElementException(f'No visible filter control matching "{text}"')
             scroll_to_view(driver, button)
@@ -141,7 +141,7 @@ def boolean_button_click(driver: WebDriver, actions: ActionChains, text: str) ->
     Tries to click on the boolean button with the given `text` text.
     '''
     try:
-        heading_xpath = './/*[self::h3 or self::legend or self::span or self::label][contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "' + text.strip().toLowerCase() + '")]/ancestor::fieldset[1]'
+        heading_xpath = './/*[self::h3 or self::legend or self::span or self::label][contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "' + text.strip().lower() + '")]/ancestor::fieldset[1]'
         list_container = pick_first_displayed(driver.find_elements(By.XPATH, heading_xpath))
         if not list_container: raise NoSuchElementException(f'No filter fieldset for "{text}"')
         button = list_container.find_element(By.XPATH, './/input[@role="switch"]')
